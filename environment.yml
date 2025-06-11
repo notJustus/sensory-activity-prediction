@@ -1,0 +1,14 @@
+name: ml4qs
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.9
+  - pandas
+  - numpy
+  - scipy
+  - scikit-learn
+  - pywavelets
+  - jupyter
+  - matplotlib
+  - pip 
