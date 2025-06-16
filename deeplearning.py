@@ -67,21 +67,17 @@ class TemporalActivityDataset(Dataset):
 
 class LSTMClassifier(nn.Module):
     """
-    LSTM-based classifier for activity recognition
-    
-    Rationale: LSTMs are well-suited for sequential data with long-term dependencies.
-    They can capture temporal patterns in sensor data that traditional ML misses.
+    LSTM-based classifier for activity recognition (Tuned for less overfitting)
     """
     
-    def __init__(self, input_size, hidden_size=128, num_layers=2, num_classes=7, 
-                 dropout=0.3, bidirectional=True):
+    def __init__(self, input_size, hidden_size=64, num_layers=2, num_classes=7, 
+                 dropout=0.5, bidirectional=True): # ✨ TUNED: Reduced hidden_size, increased dropout
         super(LSTMClassifier, self).__init__()
         
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.bidirectional = bidirectional
         
-        # LSTM layer
         self.lstm = nn.LSTM(
             input_size=input_size,
             hidden_size=hidden_size,
@@ -91,27 +87,21 @@ class LSTMClassifier(nn.Module):
             batch_first=True
         )
         
-        # Calculate the size after LSTM
         lstm_output_size = hidden_size * 2 if bidirectional else hidden_size
         
-        # Classification layers
         self.dropout = nn.Dropout(dropout)
         self.fc1 = nn.Linear(lstm_output_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, num_classes)
         self.relu = nn.ReLU()
         
     def forward(self, x):
-        # LSTM forward pass
         lstm_out, (hidden, cell) = self.lstm(x)
         
-        # Use the last output for classification
         if self.bidirectional:
-            # Concatenate forward and backward hidden states
             output = torch.cat((hidden[-2,:,:], hidden[-1,:,:]), dim=1)
         else:
             output = hidden[-1,:,:]
         
-        # Classification layers
         output = self.dropout(output)
         output = self.relu(self.fc1(output))
         output = self.dropout(output)
@@ -150,15 +140,11 @@ class TCNBlock(nn.Module):
 
 class TCNClassifier(nn.Module):
     """
-    Temporal Convolutional Network for activity classification
-    
-    Rationale: TCNs can capture long-range dependencies with dilated convolutions
-    and are more computationally efficient than RNNs. They're particularly good
-    for modeling temporal sequences with varying time dependencies.
+    Temporal Convolutional Network for activity classification (Tuned for less overfitting)
     """
     
-    def __init__(self, input_size, num_channels=[64, 128, 256], kernel_size=3, 
-                 dropout=0.1, num_classes=7):
+    def __init__(self, input_size, num_channels=[32, 64, 128], kernel_size=3, 
+                 dropout=0.2, num_classes=7): # ✨ TUNED: Reduced channels, increased dropout
         super(TCNClassifier, self).__init__()
         
         layers = []
@@ -177,17 +163,10 @@ class TCNClassifier(nn.Module):
         self.classifier = nn.Linear(num_channels[-1], num_classes)
         
     def forward(self, x):
-        # TCN expects (batch, channels, sequence)
         x = x.transpose(1, 2)
-        
-        # Apply TCN layers
         x = self.network(x)
-        
-        # Global average pooling
         x = self.global_pool(x)
         x = x.squeeze(2)
-        
-        # Classification
         return self.classifier(x)
 
 class TransformerClassifier(nn.Module):
@@ -356,40 +335,29 @@ class DeepLearningActivityFramework:
         if model_type == 'LSTM':
             model = LSTMClassifier(
                 input_size=self.input_size,
-                hidden_size=128,
-                num_layers=2,
-                num_classes=self.num_classes,
-                dropout=0.3,
-                bidirectional=True
+                num_classes=self.num_classes
             )
         elif model_type == 'TCN':
             model = TCNClassifier(
                 input_size=self.input_size,
-                num_channels=[64, 128, 256],
-                kernel_size=3,
-                dropout=0.1,
                 num_classes=self.num_classes
             )
-        elif model_type == 'Transformer':
-            model = TransformerClassifier(
-                input_size=self.input_size,
-                d_model=128,
-                nhead=8,
-                num_layers=4,
-                num_classes=self.num_classes,
-                dropout=0.1
-            )
+        # NOTE: Transformer has been removed as per user request
         else:
+            # Silently skip if it's a transformer
+            if model_type == 'Transformer':
+                return
             raise ValueError(f"Unknown model type: {model_type}")
         
         model = model.to(self.device)
         
         # Loss and optimizer
         criterion = nn.CrossEntropyLoss()
-        optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-5)
+        # ✨ TUNED: Added weight_decay for L2 regularization
+        optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4) 
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, factor=0.5)
         
-        # Training loop
+        # (The rest of the training loop remains the same)
         train_losses = []
         val_losses = []
         train_accuracies = []
@@ -534,7 +502,7 @@ class DeepLearningActivityFramework:
     
     def train_all_models(self, epochs=100, lr=0.001, patience=10):
         """Train all deep learning models"""
-        models_to_train = ['LSTM', 'TCN', 'Transformer']
+        models_to_train = ['LSTM', 'TCN']
         
         for model_type in models_to_train:
             print(f"\n{'='*50}")
@@ -625,7 +593,8 @@ class DeepLearningActivityFramework:
                                  key=lambda x: x[1]['accuracy'])
             print(f"\n📊 Best Traditional ML Model: {best_traditional[0]}")
             print(f"   Accuracy: {best_traditional[1]['accuracy']:.4f}")
-            print(f"   F1-Score: {best_traditional[1]['classification_report']['weighted avg']['f1-score']:.4f}")
+            # ✨ FIX: Access the f1_score directly from the dictionary
+            print(f"   F1-Score: {best_traditional[1]['f1_score']:.4f}")
         
         # Deep learning results summary
         if self.results:
@@ -882,8 +851,9 @@ def main():
     """Main function to run the deep learning framework with real data."""
     
     # 1. Load and clean the data from your CSV file
-    print("🔄 Loading and cleaning data from aggregated_data_cleaned.csv...")
-    df = pd.read_csv("aggregated_data_cleaned.csv")
+    # ✨ FIX: Updated filename to use the combined dataset
+    print("🔄 Loading and cleaning data from aggregated_data_cleaned_combined.csv...")
+    df = pd.read_csv("aggregated_data_cleaned_combined.csv")
     df.columns = [col.strip().replace(' ', '_').replace('(', '').replace(')', '').replace('°', 'deg').replace('/', '_').replace('µT', 'uT') for col in df.columns]
     df = df.rename(columns={'window_start_time': 'time'})
     print("✅ Data loaded successfully.")
